@@ -1,81 +1,107 @@
-LINK BOT https://t.me/aio_downloaders_bot
+# AIO Downloader Telegram Bot
 
-AIO Downloader Telegram Bot
+Bot Telegram untuk memproses URL media dari beberapa platform melalui downloader API, lalu mengirim hasil ke user.
 
-- Bot menerima link dari:
-  - TikTok (aktif)
-  - Facebook (belum)
-  - Instagram (belum)
-  - Threads (belum)
-  - Douyin (belum)
-  - YouTube (belum)
+## Dukungan platform
 
+- TikTok
+- Douyin
+- Instagram
+- Threads
+- Facebook
+- YouTube
 
-- Memanggil API downloader lalu mengirim media ke pengguna.Audio (MP3) tidak dikirim otomatis; tersedia tombol inline "Download MP3" per item.
+## Cara kerja singkat
 
-Fitur
-- Deteksi platform dari hostname/path (TikTok, Douyin, Instagram, Threads, Facebook, YouTube).
-- Validasi URL dan pesan contoh URL yang didukung.
-- Endpoint AIO diatur melalui file `config.yml` (lihat `config.yml.example`).
-  - Sumber API: layanan downloader dari pitucode.com (contoh default: https://api.pitucode.com/downloader/aio).
-- Parsing `result.medias[]` (type, url, extension, quality, data_size, duration) sesuai contoh di "contoh.txt"/`yt.txt`.
-- Video: kirim 1 video kualitas terbaik sebagai hasil utama (prioritas kualitas dan prefer muxed/beraudio). Jika terlalu besar/gagal, kirim ringkasan + tombol.
-- Gambar: TikTok photo mode dikirim sebagai album; platform lain dikirim satu per satu; ringkasan muncul setelah gambar.
-- Audio: tidak dikirim otomatis. Tombol "Download MP3" memicu unduh dan kirim sebagai audio.
-- Batas ukuran `MAX_UPLOAD_TO_TELEGRAM_BYTES`; jika terlampaui, kirim link langsung.
-- Concurrency per user (default 3) dan dedup callback MP3.
-- Pesan "Sedang memproses..." otomatis dihapus setelah hasil terkirim; bot juga menambahkan reaction emoji (best-effort) di pesan user.
-- Logging jelas (endpoint, param, fallback, error).
+1. User kirim URL ke bot.
+2. Bot deteksi platform dari hostname.
+3. Bot panggil endpoint downloader sesuai `config.yml` (bisa per-platform).
+4. Hasil dinormalisasi ke format internal.
+5. Bot kirim:
+- Video terbaik (jika ada).
+- Gambar sebagai album atau satu per satu.
+- Audio via tombol `Download MP3`.
 
-Environment variables
-- `TELEGRAM_BOT_TOKEN` — token bot Telegram.
-- `DOWNLOADER_API_KEY` — opsional jika API memerlukan.
-- Batas dan performa:
-  - `MAX_UPLOAD_TO_TELEGRAM_BYTES` — default 52428800 (50 MB)
-  - `MAX_CONCURRENT_PER_USER` — default 3
-  - `HTTP_CONNECT_TIMEOUT`, `HTTP_READ_TIMEOUT`, `HTTP_TOTAL_TIMEOUT` — default 10/60/120 detik
+Catatan YouTube:
+- Bot tidak upload video YouTube ke Telegram.
+- Bot kirim tombol kualitas (tautan langsung per resolusi).
 
-Konfigurasi endpoint (config.yml)
-- Salin `config.yml.example` ke `config.yml` lalu sesuaikan:
+## Struktur repo
 
-```
+- `main.py`: entrypoint runtime.
+- `bot/`: core app, config, state, platform detector, normalizer.
+- `handlers/`: handler Telegram (`/start`, text URL, callback MP3, util flow).
+- `processors/`: processor per platform.
+- `config.yml`: endpoint downloader default + override per-platform.
+
+## Konfigurasi
+
+### 1) Environment variables
+
+Salin `.env.example` ke `.env`, lalu isi minimal:
+
+- `TELEGRAM_BOT_TOKEN`
+- `DOWNLOADER_API_KEY` (opsional, sesuai kebutuhan API)
+
+Variabel batas/performa:
+
+- `MAX_UPLOAD_TO_TELEGRAM_BYTES` (default 52428800)
+- `MAX_CONCURRENT_PER_USER` (default 3)
+- `HTTP_CONNECT_TIMEOUT` (default 10)
+- `HTTP_READ_TIMEOUT` (default 60)
+- `HTTP_TOTAL_TIMEOUT` (default 120)
+
+### 2) Endpoint downloader
+
+Salin `config.yml.example` ke `config.yml` lalu sesuaikan:
+
+```yaml
 endpoints:
   default: https://api.pitucode.com/downloader/aio
   per_platform:
-    # douyin: https://api.pitucode.com/douyin-downloader
-    # youtube: https://api.pitucode.com/downloader/aio
+    tiktok: https://api.pitucode.com/downloader/ttsave
+    douyin: https://api.pitucode.com/douyin-downloader
+    instagram: https://api.pitucode.com/downloader/igstory
+    threads: https://api.pitucode.com/downloader/aio
+    facebook: https://api.pitucode.com/downloader/fbdown
+    youtube: https://api.pitucode.com/downloader/aio
 ```
 
-Struktur direktori
-- `bot/` — core modules (config, context, state, downloader_client, media_utils, media_normalizer, platforms, ui, app, main)
-- `handlers/` — Telegram handlers (/start, callback MP3, text router, flow utils)
-- `processors/` — per‑platform processors (tiktok, instagram, facebook, threads, douyin, youtube, generic)
-- `main.py` — entrypoint
+## Jalankan lokal
 
-Menjalankan
-- Python 3.10+
-- `pip install -r requirements.txt`
-- Salin `.env.example` ke `.env` lalu isi variabel.
-- Salin `config.yml.example` ke `config.yml` bila ingin mengganti endpoint default/per-platform.
-- `python main.py`
-- Opsional: aktifkan rate limiter PTB — `pip install "python-telegram-bot[rate-limiter]==21.6"`
+Prasyarat: Python 3.10+.
 
-Cara pakai
-- Kirim URL ke bot. Contoh:
-  - https://www.tiktok.com/@user/video/123
-  - https://www.facebook.com/watch/?v=123
-  - https://www.instagram.com/p/POST_ID/
-  - https://www.threads.net/@user/post/123
-  - https://www.douyin.com/video/123
-  - https://www.youtube.com/watch?v=VIDEO_ID
-- Bot membalas "Sedang memproses..." (dan menambahkan reaction), lalu menghapusnya setelah hasil terkirim.
-- Bot mengirim:
-  - Video: 1 video terbaik + tombol
-  - Gambar: album (TikTok) atau per‑foto (lainnya)
-  - Audio: tombol "Download MP3" (tanpa auto‑upload)
+```bash
+pip install -r requirements.txt
+python main.py
+```
 
-Catatan & batasan
-- Hormati hak cipta dan ToS platform. Gunakan untuk konten yang Anda miliki haknya.
-- Batas upload Telegram dapat berbeda per lingkungan; `MAX_UPLOAD_TO_TELEGRAM_BYTES` adalah fallback internal.
-- Jika API rate-limited/timeout: bot membalas "Maaf, server downloader sedang sibuk. Coba lagi nanti."
+Opsional (rate limiter PTB):
 
+```bash
+pip install "python-telegram-bot[rate-limiter]==21.6"
+```
+
+## Deploy ke Coolify
+
+Repo ini sudah punya `Dockerfile`, jadi paling mudah pakai mode Dockerfile di Coolify.
+
+1. Buat resource baru: `Application` di Coolify.
+2. Source: pilih Git repository ini.
+3. Build pack: pilih `Dockerfile`.
+4. Tambahkan environment variables dari `.env.example` (minimal token Telegram + API key bila perlu).
+5. Pastikan file `config.yml` ikut ada di repo (atau mount sesuai kebutuhan).
+6. Deploy.
+
+Rekomendasi:
+- Gunakan `HEALTHCHECK` bawaan di `Dockerfile` (CMD non-HTTP, cek proses bot).
+- Di Coolify, healthcheck UI berbasis HTTP bisa dimatikan jika tidak diperlukan.
+
+## Penggunaan bot
+
+Kirim URL yang didukung ke chat bot. Bot akan membalas progress lalu mengirim media/tombol unduh.
+
+## Catatan
+
+- Hormati hak cipta dan ToS platform.
+- Jika file terlalu besar untuk Telegram, bot akan kirim tautan langsung.
