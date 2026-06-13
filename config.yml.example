@@ -1,14 +1,8 @@
 endpoints:
-  # Default base URL for AIO downloader endpoint
-  # You can change this globally here.
+  # Unified endpoint (following pitucode recommendation).
+  # All platforms now use the single /downloader/aio endpoint.
+  # Previously there were per-platform overrides (ttsave for tiktok, igstory, fbdown, etc.),
+  # but those dedicated endpoints are no longer required.
   default: https://api.pitucode.com/downloader/aio
 
-  # Optional per-platform overrides (keys are platform names in lowercase)
-  # If omitted or empty, the default above is used.
-  per_platform:
-    tiktok: https://api.pitucode.com/downloader/ttsave
-    douyin: https://api.pitucode.com/douyin-downloader
-    instagram: https://api.pitucode.com/downloader/igstory
-    threads: https://api.pitucode.com/downloader/aio
-    facebook: https://api.pitucode.com/downloader/fbdown
-    youtube: https://api.pitucode.com/downloader/aio
+  # per_platform: {}   # intentionally removed for simplicity — everything routes through default + process_generic (except YouTube)

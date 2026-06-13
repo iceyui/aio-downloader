@@ -9,11 +9,6 @@ import logging
 from bot.context import BotContext
 from bot.platforms import detect_platform, sample_urls_text
 from processors.generic import process_generic
-from processors.douyin import process_douyin
-from processors.tiktok import process_tiktok
-from processors.instagram import process_instagram
-from processors.facebook import process_facebook
-from processors.threads import process_threads
 from processors.youtube import process_youtube
 
 
@@ -58,19 +53,13 @@ def text_handler(ctx: BotContext) -> MessageHandler:
         sem = ctx.semaphores.for_user(user_id)
         async with sem:
             try:
-                if platform == "douyin":
-                    await process_douyin(ctx, platform=platform, message=message, url=text, req_id=req_id, user_id=user_id)
-                elif platform == "tiktok":
-                    await process_tiktok(ctx, platform=platform, message=message, url=text, req_id=req_id, user_id=user_id)
-                elif platform == "instagram":
-                    await process_instagram(ctx, platform=platform, message=message, url=text, req_id=req_id, user_id=user_id)
-                elif platform == "facebook":
-                    await process_facebook(ctx, platform=platform, message=message, url=text, req_id=req_id, user_id=user_id)
-                elif platform == "threads":
-                    await process_threads(ctx, platform=platform, message=message, url=text, req_id=req_id, user_id=user_id)
-                elif platform == "youtube":
+                if platform == "youtube":
+                    # YouTube is intentionally special: we do not auto-upload the video file.
+                    # Instead we present quality selection buttons (see process_youtube).
                     await process_youtube(ctx, platform=platform, message=message, url=text, req_id=req_id, user_id=user_id)
                 else:
+                    # All other platforms (tiktok, instagram, facebook, douyin, threads, ...)
+                    # now use the unified /aio endpoint + generic processor.
                     await process_generic(ctx, platform=platform, message=message, url=text, req_id=req_id, user_id=user_id)
             finally:
                 try:

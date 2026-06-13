@@ -15,7 +15,7 @@ Bot Telegram untuk memproses URL media dari beberapa platform melalui downloader
 
 1. User kirim URL ke bot.
 2. Bot deteksi platform dari hostname.
-3. Bot panggil endpoint downloader sesuai `config.yml` (bisa per-platform).
+3. Bot memanggil unified downloader endpoint (`/downloader/aio`) melalui `processors/generic.py`.
 4. Hasil dinormalisasi ke format internal.
 5. Bot kirim:
 - Video terbaik (jika ada).
@@ -29,10 +29,13 @@ Catatan YouTube:
 ## Struktur repo
 
 - `main.py`: entrypoint runtime.
-- `bot/`: core app, config, state, platform detector, normalizer.
-- `handlers/`: handler Telegram (`/start`, text URL, callback MP3, util flow).
-- `processors/`: processor per platform.
-- `config.yml`: endpoint downloader default + override per-platform.
+- `bot/`: core app, config, state, platform detector, normalizer, downloader client.
+- `handlers/`: handler Telegram (`/start`, text URL, callback MP3, result flow).
+- `processors/`:
+  - `generic.py`: handler utama untuk hampir semua platform (TikTok, Instagram, Facebook, Douyin, Threads, dll) menggunakan unified endpoint.
+  - `youtube.py`: khusus YouTube (tidak auto-upload video, hanya kirim pilihan kualitas).
+  - File legacy lain (`tiktok.py`, `instagram.py`, `facebook.py`, `douyin.py`, `threads.py`) masih ada untuk referensi tapi tidak lagi dipakai di flow utama.
+- `config.yml`: hanya mendefinisikan endpoint default (unified AIO).
 
 ## Konfigurasi
 
@@ -53,18 +56,20 @@ Variabel batas/performa:
 
 ### 2) Endpoint downloader
 
-Salin `config.yml.example` ke `config.yml` lalu sesuaikan:
+Repo ini sekarang menggunakan **unified endpoint** sesuai rekomendasi pitucode:
 
 ```yaml
 endpoints:
+  # Semua platform (kecuali YouTube yang punya flow khusus) menggunakan endpoint ini.
   default: https://api.pitucode.com/downloader/aio
-  per_platform:
-    tiktok: https://api.pitucode.com/downloader/ttsave
-    douyin: https://api.pitucode.com/douyin-downloader
-    instagram: https://api.pitucode.com/downloader/igstory
-    threads: https://api.pitucode.com/downloader/aio
-    facebook: https://api.pitucode.com/downloader/fbdown
-    youtube: https://api.pitucode.com/downloader/aio
+```
+
+Tidak lagi ada `per_platform` override (sebelumnya ada `ttsave`, `igstory`, `fbdown`, dll). 
+Semua platform sekarang melewati `processors/generic.py` + endpoint `/aio` yang sama.
+
+Contoh pemanggilan (seperti yang direkomendasikan pitucode):
+```
+https://api.pitucode.com/downloader/aio?apikey=YOURAPIKEY&url=https://www.tiktok.com/...
 ```
 
 ## Jalankan lokal
