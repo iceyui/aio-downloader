@@ -1,12 +1,12 @@
 # AIO Downloader Telegram Bot
 
-Bot Telegram untuk memproses URL media TikTok melalui unified downloader API pitucode, lalu mengirim hasil ke user.
+Bot Telegram untuk memproses URL video TikTok melalui TikTok Downloader v2 API dari pitucode, lalu mengirim videonya ke user.
 
 ## Dukungan platform
 
 - **TikTok** (didukung penuh)
 
-Platform lain masih **coming soon** (dalam tahap pengembangan / akan menggunakan unified endpoint yang sama):
+Platform lain masih **coming soon** (dalam tahap pengembangan, belum ada endpoint yang dipasang):
 
 - Douyin
 - Instagram
@@ -18,8 +18,8 @@ Platform lain masih **coming soon** (dalam tahap pengembangan / akan menggunakan
 
 1. User kirim URL ke bot.
 2. Bot deteksi platform dari hostname.
-3. Bot memanggil unified downloader endpoint (`/downloader/aio`) melalui `processors/generic.py`.
-4. Hasil dinormalisasi ke format internal.
+3. Bot memanggil endpoint `tiktok-downloader-v2` melalui `processors/generic.py` (API key di header `x-api-key`).
+4. Respons `data` (`cdn_url`, `author`, `video`, ...) diadaptasi ke format internal di `bot/media_normalizer.py`.
 5. Bot kirim:
 - Video terbaik (jika ada).
 - Gambar sebagai album atau satu per satu.
@@ -35,10 +35,10 @@ Catatan YouTube:
 - `bot/`: core app, config, state, platform detector, normalizer, downloader client.
 - `handlers/`: handler Telegram (`/start`, text URL, callback MP3, result flow).
 - `processors/`:
-  - `generic.py`: saat ini menangani TikTok menggunakan unified endpoint. Platform lain (Douyin, Instagram, dll) masih coming soon dan akan menggunakan jalur yang sama.
+  - `generic.py`: saat ini menangani TikTok via endpoint `tiktok-downloader-v2`. Platform lain (Douyin, Instagram, dll) masih coming soon.
   - `youtube.py`: khusus YouTube (tidak auto-upload video, hanya kirim pilihan kualitas) — coming soon.
   - File legacy lain (`tiktok.py`, `instagram.py`, `facebook.py`, `douyin.py`, `threads.py`) masih ada untuk referensi tapi tidak lagi dipakai di flow utama.
-- `config.yml`: hanya mendefinisikan endpoint default (unified AIO).
+- `config.yml`: mendefinisikan endpoint default (`tiktok-downloader-v2`).
 
 ## Konfigurasi
 
@@ -74,26 +74,42 @@ Untuk menggunakan downloader API (termasuk untuk TikTok dll):
 
 **Catatan penting:**
 - Tier gratis biasanya memberikan 100 request/hari (cukup untuk penggunaan bot pribadi).
-- Key ini akan dikirim sebagai query parameter `?apikey=...` (sesuai dokumentasi pitucode).
+- Key ini dikirim sebagai header `x-api-key` (sesuai dokumentasi pitucode). Nama header bisa diganti lewat `DOWNLOADER_APIKEY_HEADER_NAME`.
 - Beberapa endpoint premium mungkin memerlukan upgrade berbayar, tapi endpoint downloader yang digunakan bot ini umumnya bisa diakses dengan key gratis.
 
 ### 2) Endpoint downloader
 
-Repo ini sekarang menggunakan **unified endpoint** sesuai rekomendasi pitucode:
+Repo ini memakai **TikTok Downloader v2** dari pitucode:
 
 ```yaml
 endpoints:
-  # Saat ini untuk TikTok. Platform lain masih coming soon (akan menggunakan endpoint yang sama).
-  default: https://api.pitucode.com/downloader/aio
+  default: https://api.pitucode.com/tiktok-downloader-v2
 ```
 
-Tidak lagi ada `per_platform` override (sebelumnya ada `ttsave`, `igstory`, `fbdown`, dll). 
-TikTok saat ini melewati `processors/generic.py` + endpoint `/aio` yang sama. Platform lain akan mengikuti setelah siap.
+Contoh pemanggilan (URL target sebagai query `url`, API key di header):
 
-Contoh pemanggilan (seperti yang direkomendasikan pitucode):
+```bash
+curl -G "https://api.pitucode.com/tiktok-downloader-v2"   --data-urlencode "url=https://www.tiktok.com/@user/video/123"   -H "x-api-key: YOURAPIKEY"
 ```
-https://api.pitucode.com/downloader/aio?apikey=YOURAPIKEY&url=https://www.tiktok.com/...
+
+Contoh respons sukses (dipersingkat):
+
+```json
+{
+  "success": true,
+  "data": {
+    "source_url": "https://www.tiktok.com/@user/video/123",
+    "cdn_url": "https://cdn.zass.in/xxxx.mp4",
+    "file_size": 641125,
+    "description": "",
+    "author": { "username": "user", "nickname": "Nama" },
+    "video": { "duration": 15, "cover": "https://...", "format": "mp4", "direct_play_url": "https://..." }
+  }
+}
 ```
+
+Bot mengirim `cdn_url` ke Telegram (`direct_play_url` butuh cookie TikTok, jadi tidak dipakai).
+Kalau API membalas `success: false` (link tidak valid/privat) atau 4xx (API key salah), bot langsung memberi tahu user tanpa retry supaya kuota tidak terbuang. Retry (maks. 3x) hanya untuk error 5xx/jaringan.
 
 ## Jalankan lokal
 

@@ -1,8 +1,6 @@
 endpoints:
-  # Unified endpoint (following pitucode recommendation).
-  # All platforms now use the single /downloader/aio endpoint.
-  # Previously there were per-platform overrides (ttsave for tiktok, igstory, fbdown, etc.),
-  # but those dedicated endpoints are no longer required.
+  # pitucode TikTok downloader v2. API key dikirim via header `x-api-key` (DOWNLOADER_API_KEY di .env).
+  # Respons: {success, data: {cdn_url, author, video, ...}} -> diadaptasi di bot/media_normalizer.py.
   default: https://api.pitucode.com/tiktok-downloader-v2
 
-  # per_platform: {}   # intentionally removed for simplicity — everything routes through default + process_generic (except YouTube)
+  # per_platform: {}   # opsional: override endpoint per platform, mis. youtube: https://...

@@ -89,6 +89,56 @@ def _normalize_media_item(m: Dict[str, Any], platform: str) -> Dict[str, Any]:
     return normalized
 
 
+def _adapt_tiktok_v2(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Map tiktok-downloader-v2 `data` into the internal result shape.
+
+    Input: {source_url, cdn_url, file_size, description, author{username,nickname},
+            video{duration, cover, format, direct_play_url}}
+    """
+    author = d.get("author") if isinstance(d.get("author"), dict) else {}
+    video = d.get("video") if isinstance(d.get("video"), dict) else {}
+    nickname = author.get("nickname")
+    username = author.get("username")
+    if nickname and username:
+        author_text = f"{nickname} (@{username})"
+    else:
+        author_text = nickname or (f"@{username}" if username else None)
+
+    medias: List[Dict[str, Any]] = []
+    # cdn_url is re-hosted by pitucode and fetchable by Telegram; direct_play_url needs TikTok cookies.
+    if isinstance(d.get("cdn_url"), str) and d["cdn_url"].startswith("http"):
+        medias.append({
+            "url": d["cdn_url"],
+            "type": "video",
+            "extension": video.get("format") or "mp4",
+            "quality": "hd_no_watermark",
+            "data_size": d.get("file_size"),
+            "duration": video.get("duration"),
+        })
+    for img in d.get("images") or []:
+        img_url = img.get("url") if isinstance(img, dict) else img
+        if isinstance(img_url, str) and img_url.startswith("http"):
+            medias.append({"url": img_url, "type": "image"})
+
+    return {
+        "url": d.get("source_url"),
+        "author": author_text,
+        "title": d.get("description") or None,
+        "thumbnail": video.get("cover"),
+        "medias": medias,
+    }
+
+
+def extract_result(data: Dict[str, Any], platform: str) -> Dict[str, Any]:
+    """Pick the payload from an API response (v2 `data` or legacy `result`) and normalize it."""
+    payload = data.get("data")
+    if isinstance(payload, dict):
+        raw = _adapt_tiktok_v2(payload)
+    else:
+        raw = data.get("result") or {}
+    return normalize_result(raw, platform)
+
+
 def normalize_result(result: Dict[str, Any], platform: str) -> Dict[str, Any]:
     # Top-level passthrough with media normalization
     medias = result.get("medias") or []

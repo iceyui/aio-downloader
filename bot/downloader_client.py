@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 import aiohttp
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 
 class DownloaderError(Exception):
     pass
+
+
+class TransientDownloaderError(DownloaderError):
+    """Server-side/network failure worth retrying (5xx)."""
+
+
+class ApiRejectedError(DownloaderError):
+    """API answered but refused the request (bad key, invalid/private URL). Not retried."""
 
 
 class TooLargeError(DownloaderError):
@@ -28,44 +37,48 @@ class DownloaderClient:
         read_timeout: int = 60,
         total_timeout: int = 120,
         url_param_name: str = "url",
-        apikey_param_name: str = "apikey",
+        apikey_header_name: str = "x-api-key",
     ) -> None:
         self.base_url = base_url.rstrip("?")
         self.api_key = api_key
         self.url_param_name = url_param_name or "url"
-        self.apikey_param_name = apikey_param_name or "apikey"
+        self.apikey_header_name = apikey_header_name or "x-api-key"
         self._timeout = aiohttp.ClientTimeout(
             total=total_timeout, connect=connect_timeout, sock_read=read_timeout
         )
 
-    @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=4), stop=stop_after_attempt(3))
+    # Only retry transient failures: a rejected request would just burn API quota.
+    @retry(
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception_type((TransientDownloaderError, aiohttp.ClientError, asyncio.TimeoutError)),
+    )
     async def fetch(self, session: aiohttp.ClientSession, url: str) -> Dict[str, Any]:
-        params = {self.url_param_name: url}
-        if self.api_key:
-            params[self.apikey_param_name] = self.api_key
-
-        query = urlencode(params)
+        query = urlencode({self.url_param_name: url})
         final_url = f"{self.base_url}?{query}"
+        headers = {self.apikey_header_name: self.api_key} if self.api_key else {}
 
-        async with session.get(final_url, timeout=self._timeout) as resp:
+        async with session.get(final_url, headers=headers, timeout=self._timeout) as resp:
             if resp.status >= 500:
-                raise DownloaderError(f"Server error: {resp.status}")
+                raise TransientDownloaderError(f"Server error: {resp.status}")
             if resp.status != 200:
                 text = await resp.text()
-                raise DownloaderError(f"Status {resp.status}: {text[:200]}")
+                try:
+                    msg = json.loads(text).get("message")
+                except Exception:
+                    msg = None
+                raise ApiRejectedError(f"Status {resp.status}: {msg or text[:200]}")
             data = await resp.json(content_type=None)
 
-        # Accept flexible structures: prefer success==True but tolerate missing key
-        if not data:
+        if not isinstance(data, dict) or not data:
             raise DownloaderError("Empty response from downloader")
 
-        success = data.get("success")
-        if success is False:
-            raise DownloaderError("Downloader returned unsuccess status")
+        if data.get("success") is False:
+            raise ApiRejectedError(data.get("message") or "Downloader returned unsuccess status")
 
-        # Ensure result exists; medias may be empty and handled by caller
-        if not isinstance(data.get("result"), dict):
-            raise DownloaderError("Invalid response: missing result")
+        # tiktok-downloader-v2 returns the payload under "data"; older endpoints used "result".
+        if not isinstance(data.get("data"), dict) and not isinstance(data.get("result"), dict):
+            raise DownloaderError("Invalid response: missing data/result")
 
         return data
 

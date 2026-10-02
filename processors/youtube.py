@@ -7,7 +7,7 @@ import aiohttp
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.context import BotContext
-from bot.media_normalizer import normalize_result
+from bot.media_normalizer import extract_result
 from bot.media_utils import is_video, pick_caption
 from handlers.utils import build_api, fetch_with_redirect
 
@@ -50,8 +50,7 @@ async def process_youtube(ctx: BotContext, *, platform: str, message, url: str, 
         await message.reply_text("Terjadi kesalahan saat memproses tautan.")
         return
 
-    raw_result = data.get("result") or {}
-    result = normalize_result(raw_result, platform)
+    result = extract_result(data, platform)
 
     # Build a small set of quality buttons
     medias = result.get("medias") or []

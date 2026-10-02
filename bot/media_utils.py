@@ -21,6 +21,8 @@ def summarize_result(result: Dict[str, Any]) -> Tuple[int, int, int]:
 def pick_caption(author: Optional[str], title: Optional[str]) -> str:
     if not (author or title):
         return "."
+    if not (title or "").strip():
+        return author
     a = author or "-"
     t = (title or "-").strip()
     if len(t) > 200:
