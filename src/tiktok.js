@@ -28,8 +28,8 @@ function authorText(author) {
 }
 
 /**
- * Convert one version's `result` into a single shape:
- * { type, author, desc, videoUrl, images: [url], music: { url, title, author } | null }
+ * Convert one version's `result` into the shape send.js expects:
+ * { platform, author, desc, items: [{ kind: "photo"|"video", url }], music: { url, title, author } | null }
  */
 function normalize(version, r) {
   const images = Array.isArray(r.images) ? r.images.filter(Boolean) : [];
@@ -37,13 +37,17 @@ function normalize(version, r) {
     version === "v3"
       ? r.videoSD || r.videoHD || null // videoSD is the no-watermark file (same bytes as v1/v2)
       : first(r.video?.playAddr);
+  const items = images.length
+    ? images.map((url) => ({ kind: "photo", url }))
+    : videoUrl
+      ? [{ kind: "video", url: videoUrl }]
+      : [];
   const musicUrl = first(r.music?.playUrl);
   return {
-    type: images.length ? "image" : "video",
+    platform: "tiktok",
     author: authorText(r.author),
     desc: (r.desc || "").trim() || null,
-    videoUrl: images.length ? null : videoUrl,
-    images,
+    items,
     music: musicUrl ? { url: musicUrl, title: r.music.title || null, author: r.music.author || null } : null,
   };
 }
@@ -59,7 +63,7 @@ async function fetchTiktok(url) {
         continue;
       }
       const data = normalize(version, res.result);
-      if (!data.videoUrl && data.images.length === 0) {
+      if (data.items.length === 0) {
         errors.push(`${version}: no media in result`);
         continue;
       }

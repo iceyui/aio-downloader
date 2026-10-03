@@ -3,23 +3,32 @@ const { Bot, InlineKeyboard, InputFile } = require("grammy");
 const { autoRetry } = require("@grammyjs/auto-retry");
 const { config } = require("./config");
 const { fetchTiktok, isTiktokUrl } = require("./tiktok");
+const { fetchInstagram, isInstagramUrl, isInstagramStoryUrl } = require("./instagram");
 const { sendResult } = require("./send");
 const { downloadBuffer, audioExtension, TooLargeError } = require("./download");
 const { AudioStore, UserLimiter } = require("./state");
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 
+const PLATFORMS = [
+  { name: "tiktok", label: "TikTok", matches: isTiktokUrl, fetch: fetchTiktok },
+  { name: "instagram", label: "Instagram", matches: isInstagramUrl, fetch: fetchInstagram },
+];
+
 const SAMPLE_URLS =
   "Contoh link yang didukung:\n" +
-  "- https://www.tiktok.com/@user/video/123\n" +
-  "- https://www.tiktok.com/@user/photo/123\n" +
-  "- https://vt.tiktok.com/XXXXXXX/";
+  "- TikTok: https://www.tiktok.com/@user/video/123\n" +
+  "- TikTok foto: https://www.tiktok.com/@user/photo/123\n" +
+  "- TikTok pendek: https://vt.tiktok.com/XXXXXXX/\n" +
+  "- Instagram post: https://www.instagram.com/p/XXXXXXXXX/\n" +
+  "- Instagram reel: https://www.instagram.com/reel/XXXXXXXXX/";
 
 const HELP_TEXT =
   "🤝 Bantuan\n" +
-  "- Kirim link TikTok (video atau foto/slide)\n" +
-  "- Video dikirim tanpa watermark, foto dikirim sebagai album\n" +
-  "- Kalau ada musiknya, tekan tombol 🎵 Download MP3\n" +
+  "- Kirim link TikTok (video atau foto/slide) atau Instagram (post, carousel, reel)\n" +
+  "- Video TikTok dikirim tanpa watermark, foto dikirim sebagai album\n" +
+  "- Kalau ada musiknya (TikTok), tekan tombol 🎵 Download MP3\n" +
+  "- Instagram Story belum didukung\n" +
   "- Jika ukuran melebihi batas upload Telegram, bot mengirim link langsung";
 
 function formatUptime(ms) {
@@ -55,16 +64,19 @@ function createBot() {
   bot.command("start", (ctx) =>
     ctx.reply(
       [
-        "👋 Selamat datang di TikTok Downloader Bot!",
+        "👋 Selamat datang di Downloader Bot!",
+        "",
+        "✨ Platform: TikTok • Instagram",
         "",
         "📌 Cara pakai:",
-        "1) Kirim link TikTok ke sini",
-        "2) Bot mengirim video (tanpa watermark) atau foto/slide-nya",
-        "3) Kalau ada musiknya, tekan tombol 🎵 Download MP3",
+        "1) Kirim link TikTok atau Instagram ke sini",
+        "2) Bot mengirim video atau foto-fotonya",
+        "3) Kalau ada musiknya (TikTok), tekan tombol 🎵 Download MP3",
         "",
         "ℹ️ Catatan:",
         "- Bot tidak menyimpan file",
-        "- Hormati hak cipta & ToS TikTok",
+        "- Instagram Story belum didukung",
+        "- Hormati hak cipta & ToS platform",
         "",
         SAMPLE_URLS,
       ].join("\n"),
@@ -119,8 +131,14 @@ function createBot() {
 
   bot.on("message:text", async (ctx) => {
     const url = ctx.msg.text.match(/https?:\/\/\S+/)?.[0];
-    if (!url || !isTiktokUrl(url)) {
-      await ctx.reply("Kirim link TikTok yang valid.\n" + SAMPLE_URLS);
+    const platform = url && PLATFORMS.find((p) => p.matches(url));
+    if (!platform) {
+      await ctx.reply("Kirim link TikTok atau Instagram yang valid.\n" + SAMPLE_URLS);
+      return;
+    }
+    if (platform.name === "instagram" && isInstagramStoryUrl(url)) {
+      // Checked before calling the downloader: stories need a logged-in session and always come back empty.
+      await ctx.reply("Instagram Story belum didukung. Kirim link post, carousel, atau reel.");
       return;
     }
 
@@ -132,17 +150,21 @@ function createBot() {
 
     const reqId = crypto.randomBytes(6).toString("hex");
     ctx.react("👍").catch(() => {});
-    const progress = await ctx.reply("⏳ Sedang memproses link TikTok kamu...");
+    const progress = await ctx.reply(`⏳ Sedang memproses link ${platform.label} kamu...`);
     try {
-      log(`request_start id=${reqId} user=${userId} url=${url}`);
-      const data = await fetchTiktok(url);
-      log(`request_success id=${reqId} version=${data.version} type=${data.type} images=${data.images.length} music=${Boolean(data.music)}`);
+      log(`request_start id=${reqId} user=${userId} platform=${platform.name} url=${url}`);
+      const data = await platform.fetch(url);
+      const counts = data.items.reduce((acc, it) => ({ ...acc, [it.kind]: (acc[it.kind] || 0) + 1 }), {});
+      log(
+        `request_success id=${reqId} platform=${platform.name} source=${data.version || `attempt${data.attempt}`}` +
+          ` photos=${counts.photo || 0} videos=${counts.video || 0} music=${Boolean(data.music)}`,
+      );
       await sendResult(ctx, { data, sourceUrl: url, reqId, audioStore });
     } catch (err) {
-      log(`request_failed id=${reqId}`, err.message);
+      log(`request_failed id=${reqId} platform=${platform.name}`, err.message);
       await ctx.reply(
         err.code === "ALL_VERSIONS_FAILED"
-          ? "Gagal mengambil konten. Pastikan link TikTok valid dan postingannya publik, lalu coba lagi."
+          ? `Gagal mengambil konten. Pastikan link ${platform.label} valid dan postingannya publik, lalu coba lagi.`
           : "Terjadi kesalahan saat mengirim hasil. Coba lagi nanti.",
       );
     } finally {

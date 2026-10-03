@@ -1,10 +1,14 @@
 const { InlineKeyboard, InputFile, InputMediaBuilder } = require("grammy");
+const { config } = require("./config");
 const { downloadBuffer, TooLargeError } = require("./download");
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 
 const MAX_DESC_CHARS = 1000;
 const TELEGRAM_CAPTION_LIMIT = 1024;
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024; // Telegram photo upload limit
+
+const PLATFORM_LABEL = { tiktok: "TikTok", instagram: "Instagram" };
 
 function buildCaption({ author, desc }) {
   if (!desc) return author || "";
@@ -32,29 +36,29 @@ function buildKeyboard(data, sourceUrl, audioStore, userId) {
     });
     kb.text("🎵 Download MP3", `mp3:${token}`).row();
   }
-  kb.url("Buka di TikTok", sourceUrl);
+  kb.url(`Buka di ${PLATFORM_LABEL[data.platform] || "sumber"}`, sourceUrl);
   return kb;
 }
 
 const mb = (bytes) => (bytes / (1024 * 1024)).toFixed(1);
 
-async function sendVideo(ctx, data, extra, reqId) {
+async function sendVideo(ctx, data, url, extra, reqId) {
   // 1) Let Telegram fetch the URL itself (fast, no bandwidth on our side; limited to ~20 MB by Telegram).
   try {
-    await ctx.replyWithVideo(data.videoUrl, { ...extra, supports_streaming: true });
+    await ctx.replyWithVideo(url, { ...extra, supports_streaming: true });
     return;
   } catch (err) {
     log(`video_url_send_failed id=${reqId}`, err.description || err.message);
   }
   // 2) Download into memory and upload (up to the 50 MB upload limit).
   try {
-    const { buffer } = await downloadBuffer(data.videoUrl);
-    await ctx.replyWithVideo(new InputFile(buffer, `tiktok_${reqId}.mp4`), { ...extra, supports_streaming: true });
+    const { buffer } = await downloadBuffer(url);
+    await ctx.replyWithVideo(new InputFile(buffer, `${data.platform}_${reqId}.mp4`), { ...extra, supports_streaming: true });
   } catch (err) {
     if (err instanceof TooLargeError) {
       // 3) Too big for Telegram: hand out the direct link (as text, signed URLs are too long for a button).
       await ctx.reply(
-        `Video terlalu besar (${mb(err.size)} MB) untuk dikirim lewat Telegram.\nUnduh langsung:\n${data.videoUrl}`,
+        `Video terlalu besar (${mb(err.size)} MB) untuk dikirim lewat Telegram.\nUnduh langsung:\n${url}`,
         { reply_markup: extra.reply_markup, link_preview_options: { is_disabled: true } },
       );
       return;
@@ -63,58 +67,69 @@ async function sendVideo(ctx, data, extra, reqId) {
   }
 }
 
+function photoExtension(contentType) {
+  if (contentType.includes("webp")) return "webp";
+  if (contentType.includes("png")) return "png";
+  return "jpg";
+}
+
 /**
- * Send images, trying progressively safer forms because Telegram may refuse TikTok URLs
- * or the .webp format TikTok serves for photo posts: URL -> uploaded photo -> uploaded document.
+ * Send photos/videos as albums of up to 10, trying progressively safer forms because Telegram may
+ * refuse remote URLs or some formats (e.g. .webp): by URL -> uploaded media -> uploaded documents.
  */
-async function sendImages(ctx, images, caption, reqId) {
+async function sendAlbum(ctx, data, caption, reqId) {
   const chunks = [];
-  for (let i = 0; i < images.length; i += 10) chunks.push(images.slice(i, i + 10));
+  for (let i = 0; i < data.items.length; i += 10) chunks.push(data.items.slice(i, i + 10));
 
-  for (const [chunkIdx, urls] of chunks.entries()) {
+  for (const [chunkIdx, items] of chunks.entries()) {
     const capFor = (i) => (chunkIdx === 0 && i === 0 && caption ? { caption } : {});
-    const send = (items) =>
-      items.length === 1
-        ? items[0].type === "photo"
-          ? ctx.replyWithPhoto(items[0].media, items[0].caption ? { caption: items[0].caption } : {})
-          : ctx.replyWithDocument(items[0].media, items[0].caption ? { caption: items[0].caption } : {})
-        : ctx.replyWithMediaGroup(items);
+    const send = (media) => {
+      if (media.length > 1) return ctx.replyWithMediaGroup(media);
+      const [m] = media;
+      const extra = m.caption ? { caption: m.caption } : {};
+      if (m.type === "photo") return ctx.replyWithPhoto(m.media, extra);
+      if (m.type === "video") return ctx.replyWithVideo(m.media, { ...extra, supports_streaming: true });
+      return ctx.replyWithDocument(m.media, extra);
+    };
+    const asMedia = (kind, media, opts) =>
+      kind === "video" ? InputMediaBuilder.video(media, { ...opts, supports_streaming: true }) : InputMediaBuilder.photo(media, opts);
 
     try {
-      await send(urls.map((u, i) => InputMediaBuilder.photo(u, capFor(i))));
+      await send(items.map((it, i) => asMedia(it.kind, it.url, capFor(i))));
       continue;
     } catch (err) {
-      log(`images_url_send_failed id=${reqId}`, err.description || err.message);
+      log(`album_url_send_failed id=${reqId}`, err.description || err.message);
     }
 
-    const buffers = [];
-    for (const [i, u] of urls.entries()) {
-      const { buffer, contentType } = await downloadBuffer(u, 10 * 1024 * 1024);
-      const ext = contentType.includes("webp") ? "webp" : contentType.includes("png") ? "png" : "jpg";
-      buffers.push({ buffer, name: `tiktok_${reqId}_${chunkIdx * 10 + i + 1}.${ext}` });
+    const files = [];
+    for (const [i, it] of items.entries()) {
+      const { buffer, contentType } = await downloadBuffer(it.url, it.kind === "video" ? config.maxUploadBytes : MAX_PHOTO_BYTES);
+      const ext = it.kind === "video" ? "mp4" : photoExtension(contentType);
+      files.push({ kind: it.kind, file: new InputFile(buffer, `${data.platform}_${reqId}_${chunkIdx * 10 + i + 1}.${ext}`) });
     }
     try {
-      await send(buffers.map((b, i) => InputMediaBuilder.photo(new InputFile(b.buffer, b.name), capFor(i))));
+      await send(files.map((f, i) => asMedia(f.kind, f.file, capFor(i))));
       continue;
     } catch (err) {
-      log(`images_upload_photo_failed id=${reqId}`, err.description || err.message);
+      log(`album_upload_media_failed id=${reqId}`, err.description || err.message);
     }
-    await send(buffers.map((b, i) => InputMediaBuilder.document(new InputFile(b.buffer, b.name), capFor(i))));
+    await send(files.map((f, i) => InputMediaBuilder.document(f.file, capFor(i))));
   }
 }
 
+/** data: { platform, author, desc, items: [{ kind: "photo"|"video", url }], music: {...}|null } */
 async function sendResult(ctx, { data, sourceUrl, reqId, audioStore }) {
   const caption = buildCaption(data);
   const keyboard = buildKeyboard(data, sourceUrl, audioStore, ctx.from.id);
   const replyTo = { reply_parameters: { message_id: ctx.msg.message_id, allow_sending_without_reply: true } };
 
-  if (data.videoUrl) {
-    await sendVideo(ctx, data, { ...replyTo, caption: caption || undefined, reply_markup: keyboard }, reqId);
+  if (data.items.length === 1 && data.items[0].kind === "video") {
+    await sendVideo(ctx, data, data.items[0].url, { ...replyTo, caption: caption || undefined, reply_markup: keyboard }, reqId);
     return;
   }
 
-  await sendImages(ctx, data.images, caption, reqId);
-  // Media groups cannot carry buttons, so the music button goes in a follow-up message.
+  await sendAlbum(ctx, data, caption, reqId);
+  // Albums cannot carry buttons, so the music button goes in a follow-up message.
   if (data.music) {
     const label = [data.music.title, data.music.author].filter(Boolean).join(" - ");
     await ctx.reply(`🎵 ${label || "Musik"}`, { reply_markup: keyboard });
