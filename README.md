@@ -4,7 +4,7 @@ Bot Telegram (Node.js) untuk mengunduh konten TikTok: **video tanpa watermark**,
 
 ## Fitur
 
-- **Video**: dikirim tanpa watermark, dengan caption author + deskripsi.
+- **Video**: dikirim tanpa watermark, dengan caption author + deskripsi (deskripsi maks. 1000 karakter, sisanya dipotong).
 - **Foto/slide**: dikirim sebagai album (maks. 10 per album, otomatis dipecah kalau lebih).
 - **Musik**: tombol `🎵 Download MP3` di bawah hasil; audio baru diunduh saat tombol ditekan. Tombol hanya bisa dipakai pengirim link dan berlaku 30 menit.
 - Link panjang (`tiktok.com/@user/video/...`, `.../photo/...`) dan pendek (`vt.tiktok.com`, `vm.tiktok.com`).
@@ -59,21 +59,18 @@ npm install
 npm start
 ```
 
-## Deploy ke Coolify
+## Jalankan dengan Docker
 
-Repo ini punya `Dockerfile` (`node:22-alpine`), jadi pakai mode Dockerfile di Coolify.
+```bash
+docker build -t tiktok-downloader-bot .
+docker run -d --name tiktok-bot --env-file .env --restart unless-stopped tiktok-downloader-bot
+```
 
-1. Buat resource baru: `Application`.
-2. Source: pilih Git repository ini (branch yang dipakai).
-3. Build pack: `Dockerfile`.
-4. Tambahkan environment variables dari `.env.example` (minimal `TELEGRAM_BOT_TOKEN`).
-5. Deploy.
-
-`HEALTHCHECK` bawaan mengecek proses bot (bukan HTTP), jadi healthcheck HTTP di Coolify bisa dimatikan.
-
-Jangan jalankan dua instance bot dengan token yang sama sekaligus (misalnya lokal + Coolify): Telegram hanya mengizinkan satu polling per bot.
+Image memakai `node:22-alpine` dan punya `HEALTHCHECK` yang mengecek proses bot (bukan HTTP).
 
 ## Catatan
+
+- Jangan jalankan dua instance bot dengan token yang sama sekaligus (misalnya lokal + server): Telegram hanya mengizinkan satu polling per bot.
 
 - Library downloader adalah scraper tidak resmi. Kalau TikTok / SSSTik / MusicalDown mengubah situsnya, versi tertentu bisa berhenti bekerja; fallback v1 -> v2 -> v3 mengurangi dampaknya. Cek update library secara berkala.
 - Bot tidak menyimpan file di disk; media diunduh ke memori lalu diupload.
