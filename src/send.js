@@ -1,8 +1,7 @@
 const { InlineKeyboard, InputFile, InputMediaBuilder } = require("grammy");
 const { config } = require("./config");
 const { downloadBuffer, TooLargeError } = require("./download");
-
-const log = (...args) => console.log(new Date().toISOString(), ...args);
+const { log } = require("./log");
 
 const MAX_DESC_CHARS = 1000;
 const TELEGRAM_CAPTION_LIMIT = 1024;
@@ -25,18 +24,24 @@ function buildCaption({ author, desc }) {
   return prefix + text + suffix;
 }
 
-function buildKeyboard(data, sourceUrl, audioStore, userId) {
+const isSingleVideo = (data) => data.items.length === 1 && data.items[0].kind === "video";
+
+function buildKeyboard(ctx, data, { sourceUrl, caption, buttonTasks }) {
   const kb = new InlineKeyboard();
+  const userId = ctx.from.id;
+  let actions = 0;
   if (data.music) {
-    const token = audioStore.add({
-      userId,
-      url: data.music.url,
-      title: data.music.title,
-      performer: data.music.author,
-    });
-    kb.text("🎵 Download MP3", `mp3:${token}`).row();
+    const token = buttonTasks.add({ userId, url: data.music.url, title: data.music.title, performer: data.music.author });
+    kb.text("🎵 Download MP3", `mp3:${token}`);
+    actions++;
   }
-  kb.url(`Buka di ${PLATFORM_LABEL[data.platform] || "sumber"}`, sourceUrl);
+  if (data.platform === "tiktok" && isSingleVideo(data)) {
+    const token = buttonTasks.add({ userId, sourceUrl, caption });
+    kb.text(ctx.t("btnHd"), `hd:${token}`);
+    actions++;
+  }
+  if (actions) kb.row();
+  kb.url(ctx.t("openOn", { platform: PLATFORM_LABEL[data.platform] || data.platform }), sourceUrl);
   return kb;
 }
 
@@ -58,7 +63,7 @@ async function sendVideo(ctx, data, url, extra, reqId) {
     if (err instanceof TooLargeError) {
       // 3) Too big for Telegram: hand out the direct link (as text, signed URLs are too long for a button).
       await ctx.reply(
-        `Video terlalu besar (${mb(err.size)} MB) untuk dikirim lewat Telegram.\nUnduh langsung:\n${url}`,
+        ctx.t("videoTooLarge", { size: mb(err.size), url }),
         { reply_markup: extra.reply_markup, link_preview_options: { is_disabled: true } },
       );
       return;
@@ -118,12 +123,12 @@ async function sendAlbum(ctx, data, caption, reqId) {
 }
 
 /** data: { platform, author, desc, items: [{ kind: "photo"|"video", url }], music: {...}|null } */
-async function sendResult(ctx, { data, sourceUrl, reqId, audioStore }) {
+async function sendResult(ctx, { data, sourceUrl, reqId, buttonTasks }) {
   const caption = buildCaption(data);
-  const keyboard = buildKeyboard(data, sourceUrl, audioStore, ctx.from.id);
+  const keyboard = buildKeyboard(ctx, data, { sourceUrl, caption, buttonTasks });
   const replyTo = { reply_parameters: { message_id: ctx.msg.message_id, allow_sending_without_reply: true } };
 
-  if (data.items.length === 1 && data.items[0].kind === "video") {
+  if (isSingleVideo(data)) {
     await sendVideo(ctx, data, data.items[0].url, { ...replyTo, caption: caption || undefined, reply_markup: keyboard }, reqId);
     return;
   }
@@ -132,8 +137,8 @@ async function sendResult(ctx, { data, sourceUrl, reqId, audioStore }) {
   // Albums cannot carry buttons, so the music button goes in a follow-up message.
   if (data.music) {
     const label = [data.music.title, data.music.author].filter(Boolean).join(" - ");
-    await ctx.reply(`🎵 ${label || "Musik"}`, { reply_markup: keyboard });
+    await ctx.reply(`🎵 ${label || ctx.t("music")}`, { reply_markup: keyboard });
   }
 }
 
-module.exports = { sendResult, buildCaption };
+module.exports = { sendResult, sendVideo, buildCaption };

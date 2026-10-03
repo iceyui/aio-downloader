@@ -47,3 +47,6 @@ logs/
 # Node
 node_modules/
 npm-debug.log*
+
+# Bot runtime data (per-user language choices)
+data/

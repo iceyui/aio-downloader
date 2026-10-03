@@ -13,6 +13,8 @@ const config = {
   httpTimeoutMs: intEnv("HTTP_TIMEOUT_SECONDS", 120) * 1000,
   // Optional proxy passed to the TikTok downloader, e.g. http://user:pass@host:port
   tiktokProxy: process.env.TIKTOK_PROXY || undefined,
+  // Where each user's /language choice is saved.
+  languageStorePath: process.env.LANGUAGE_STORE_PATH || "data/languages.json",
 };
 
 module.exports = { config };
