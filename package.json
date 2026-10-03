@@ -1,5 +1,5 @@
 {
-  "name": "tiktok-instagram-downloader-bot",
+  "name": "downloader-bot",
   "version": "2.0.0",
   "private": true,
   "description": "Telegram bot that downloads TikTok videos, photos and music, and Instagram posts and reels.",
@@ -13,7 +13,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/iceyui/aio-downloader.git"
+    "url": "git+https://github.com/iceyui/downloader-bot.git"
   },
   "license": "ISC",
   "dependencies": {
