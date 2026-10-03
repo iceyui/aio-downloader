@@ -1,15 +1,16 @@
-FROM python:3.11-slim
+FROM node:22-alpine
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+ENV NODE_ENV=production
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-COPY . .
+COPY src ./src
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["python", "-c", "import sys; c=open('/proc/1/cmdline','rb').read().decode('utf-8','ignore'); sys.exit(0 if ('python' in c and 'main.py' in c) else 1)"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["node", "-e", "const c=require('fs').readFileSync('/proc/1/cmdline','utf8'); process.exit(c.includes('src/index.js') ? 0 : 1)"]
 
-CMD ["python", "main.py"]
+USER node
+
+CMD ["node", "src/index.js"]

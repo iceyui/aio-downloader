@@ -1,151 +1,80 @@
-# AIO Downloader Telegram Bot
+# TikTok Downloader Telegram Bot
 
-Bot Telegram untuk memproses URL video TikTok melalui TikTok Downloader v2 API dari pitucode, lalu mengirim videonya ke user.
+Bot Telegram (Node.js) untuk mengunduh konten TikTok: **video tanpa watermark**, **foto/slide**, dan **musiknya**. Gratis, tanpa API key, memakai library [`@tobyg74/tiktok-api-dl`](https://github.com/TobyG74/tiktok-api-dl).
 
-## Dukungan platform
+## Fitur
 
-- **TikTok** (didukung penuh)
+- **Video**: dikirim tanpa watermark, dengan caption author + deskripsi.
+- **Foto/slide**: dikirim sebagai album (maks. 10 per album, otomatis dipecah kalau lebih).
+- **Musik**: tombol `🎵 Download MP3` di bawah hasil; audio baru diunduh saat tombol ditekan. Tombol hanya bisa dipakai pengirim link dan berlaku 30 menit.
+- Link panjang (`tiktok.com/@user/video/...`, `.../photo/...`) dan pendek (`vt.tiktok.com`, `vm.tiktok.com`).
+- Perintah: `/start`, `/help`, `/runtime`.
 
-Platform lain masih **coming soon** (dalam tahap pengembangan, belum ada endpoint yang dipasang):
+## Cara kerja
 
-- Douyin
-- Instagram
-- Threads
-- Facebook
-- YouTube (akan pakai tombol pilihan kualitas, tidak auto-upload video)
+1. User kirim link TikTok (boleh di tengah teks).
+2. Bot mengambil data lewat `Tiktok.Downloader` dengan urutan fallback:
+   - `v1`: TikTok API (paling lengkap: video, foto, musik + judulnya)
+   - `v2`: SSSTik (video, foto, musik)
+   - `v3`: MusicalDown (video, foto, tanpa musik)
 
-## Cara kerja singkat
+   Versi berikutnya hanya dicoba kalau versi sebelumnya gagal atau tidak mengembalikan media.
+3. Bot mengirim hasil ke Telegram dengan fallback bertahap:
+   - **Video**: Telegram mengambil URL langsung, kalau gagal bot mengunduh ke memori lalu upload (maks. 50 MB), kalau lebih besar bot mengirim link unduhan langsung.
+   - **Foto**: album via URL, kalau gagal upload sebagai foto, kalau masih gagal upload sebagai dokumen (TikTok kadang menyajikan foto dalam format `.webp`).
 
-1. User kirim URL ke bot.
-2. Bot deteksi platform dari hostname.
-3. Bot memanggil endpoint `tiktok-downloader-v2` melalui `processors/generic.py` (API key di header `x-api-key`).
-4. Respons `data` (`cdn_url`, `author`, `video`, ...) diadaptasi ke format internal di `bot/media_normalizer.py`.
-5. Bot kirim:
-- Video terbaik (jika ada).
-- Gambar sebagai album atau satu per satu.
-- Audio via tombol `Download MP3`.
-
-Catatan YouTube:
-- Bot tidak upload video YouTube ke Telegram.
-- Bot kirim tombol kualitas (tautan langsung per resolusi).
+Update Telegram diproses paralel (`@grammyjs/runner`), jadi satu unduhan lambat tidak menahan user lain. Tiap user dibatasi `MAX_CONCURRENT_PER_USER` link sekaligus.
 
 ## Struktur repo
 
-- `main.py`: entrypoint runtime.
-- `bot/`: core app, config, state, platform detector, normalizer, downloader client.
-- `handlers/`: handler Telegram (`/start`, text URL, callback MP3, result flow).
-- `processors/`:
-  - `generic.py`: saat ini menangani TikTok via endpoint `tiktok-downloader-v2`. Platform lain (Douyin, Instagram, dll) masih coming soon.
-  - `youtube.py`: khusus YouTube (tidak auto-upload video, hanya kirim pilihan kualitas) — coming soon.
-  - File legacy lain (`tiktok.py`, `instagram.py`, `facebook.py`, `douyin.py`, `threads.py`) masih ada untuk referensi tapi tidak lagi dipakai di flow utama.
-- `config.yml`: mendefinisikan endpoint default (`tiktok-downloader-v2`).
+```
+src/
+  index.js     entrypoint: validasi config, start polling, graceful shutdown
+  bot.js       handler Telegram: /start /help /runtime, pesan link, tombol MP3
+  tiktok.js    panggil downloader v1 -> v2 -> v3 dan samakan bentuk hasilnya
+  send.js      kirim video / album foto / tombol musik ke Telegram
+  download.js  unduh media ke memori dengan batas ukuran + deteksi format audio
+  state.js     token tombol MP3 (kedaluwarsa 30 menit) + batas proses per user
+  config.js    baca environment variables
+```
 
 ## Konfigurasi
 
-### 1) Environment variables
+Salin `.env.example` ke `.env`, lalu isi:
 
-Salin `.env.example` ke `.env`, lalu isi minimal:
-
-- `TELEGRAM_BOT_TOKEN`
-- `DOWNLOADER_API_KEY` (wajib untuk memanggil API pitucode — lihat cara daftar di bawah)
-
-Variabel batas/performa:
-
-- `MAX_UPLOAD_TO_TELEGRAM_BYTES` (default 52428800)
-- `MAX_CONCURRENT_PER_USER` (default 3)
-- `HTTP_CONNECT_TIMEOUT` (default 10)
-- `HTTP_READ_TIMEOUT` (default 60)
-- `HTTP_TOTAL_TIMEOUT` (default 120)
-
-### Mendapatkan DOWNLOADER_API_KEY dari pitucode.com
-
-Untuk menggunakan downloader API (termasuk untuk TikTok dll):
-
-1. Buka [https://pitucode.com](https://pitucode.com)
-2. Daftar akun **gratis** di [https://pitucode.com/auth/register](https://pitucode.com/auth/register)  
-   (Tidak perlu kartu kredit)
-3. Login, lalu buka dashboard di [https://pitucode.com/dashboards](https://pitucode.com/dashboards)
-4. Copy API key yang tersedia.
-5. Paste ke file `.env`:
-
-   ```env
-   DOWNLOADER_API_KEY=API_KEY_KAMU_DISINI
-   ```
-
-**Catatan penting:**
-- Tier gratis biasanya memberikan 100 request/hari (cukup untuk penggunaan bot pribadi).
-- Key ini dikirim sebagai header `x-api-key` (sesuai dokumentasi pitucode). Nama header bisa diganti lewat `DOWNLOADER_APIKEY_HEADER_NAME`.
-- Beberapa endpoint premium mungkin memerlukan upgrade berbayar, tapi endpoint downloader yang digunakan bot ini umumnya bisa diakses dengan key gratis.
-
-### 2) Endpoint downloader
-
-Repo ini memakai **TikTok Downloader v2** dari pitucode:
-
-```yaml
-endpoints:
-  default: https://api.pitucode.com/tiktok-downloader-v2
-```
-
-Contoh pemanggilan (URL target sebagai query `url`, API key di header):
-
-```bash
-curl -G "https://api.pitucode.com/tiktok-downloader-v2"   --data-urlencode "url=https://www.tiktok.com/@user/video/123"   -H "x-api-key: YOURAPIKEY"
-```
-
-Contoh respons sukses (dipersingkat):
-
-```json
-{
-  "success": true,
-  "data": {
-    "source_url": "https://www.tiktok.com/@user/video/123",
-    "cdn_url": "https://cdn.zass.in/xxxx.mp4",
-    "file_size": 641125,
-    "description": "",
-    "author": { "username": "user", "nickname": "Nama" },
-    "video": { "duration": 15, "cover": "https://...", "format": "mp4", "direct_play_url": "https://..." }
-  }
-}
-```
-
-Bot mengirim `cdn_url` ke Telegram (`direct_play_url` butuh cookie TikTok, jadi tidak dipakai).
-Kalau API membalas `success: false` (link tidak valid/privat) atau 4xx (API key salah), bot langsung memberi tahu user tanpa retry supaya kuota tidak terbuang. Retry (maks. 3x) hanya untuk error 5xx/jaringan.
+| Variabel | Wajib | Default | Keterangan |
+|---|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | ya | - | Token dari @BotFather |
+| `MAX_UPLOAD_TO_TELEGRAM_BYTES` | tidak | `52428800` | Batas upload ke Telegram (50 MB) |
+| `MAX_CONCURRENT_PER_USER` | tidak | `3` | Link yang boleh diproses bersamaan per user |
+| `HTTP_TIMEOUT_SECONDS` | tidak | `120` | Timeout unduhan media |
+| `TIKTOK_PROXY` | tidak | - | Proxy untuk downloader, kalau IP server diblokir TikTok |
 
 ## Jalankan lokal
 
-Prasyarat: Python 3.10+.
+Prasyarat: Node.js 20+.
 
 ```bash
-pip install -r requirements.txt
-python main.py
-```
-
-Opsional (rate limiter PTB):
-
-```bash
-pip install "python-telegram-bot[rate-limiter]==21.6"
+npm install
+npm start
 ```
 
 ## Deploy ke Coolify
 
-Repo ini sudah punya `Dockerfile`, jadi paling mudah pakai mode Dockerfile di Coolify.
+Repo ini punya `Dockerfile` (`node:22-alpine`), jadi pakai mode Dockerfile di Coolify.
 
-1. Buat resource baru: `Application` di Coolify.
-2. Source: pilih Git repository ini.
-3. Build pack: pilih `Dockerfile`.
-4. Tambahkan environment variables dari `.env.example` (minimal token Telegram + API key bila perlu).
-5. Pastikan file `config.yml` ikut ada di repo (atau mount sesuai kebutuhan).
-6. Deploy.
+1. Buat resource baru: `Application`.
+2. Source: pilih Git repository ini (branch yang dipakai).
+3. Build pack: `Dockerfile`.
+4. Tambahkan environment variables dari `.env.example` (minimal `TELEGRAM_BOT_TOKEN`).
+5. Deploy.
 
-Rekomendasi:
-- Gunakan `HEALTHCHECK` bawaan di `Dockerfile` (CMD non-HTTP, cek proses bot).
-- Di Coolify, healthcheck UI berbasis HTTP bisa dimatikan jika tidak diperlukan.
+`HEALTHCHECK` bawaan mengecek proses bot (bukan HTTP), jadi healthcheck HTTP di Coolify bisa dimatikan.
 
-## Penggunaan bot
-
-Kirim URL yang didukung ke chat bot. Bot akan membalas progress lalu mengirim media/tombol unduh.
+Jangan jalankan dua instance bot dengan token yang sama sekaligus (misalnya lokal + Coolify): Telegram hanya mengizinkan satu polling per bot.
 
 ## Catatan
 
-- Hormati hak cipta dan ToS platform.
-- Jika file terlalu besar untuk Telegram, bot akan kirim tautan langsung.
+- Library downloader adalah scraper tidak resmi. Kalau TikTok / SSSTik / MusicalDown mengubah situsnya, versi tertentu bisa berhenti bekerja; fallback v1 -> v2 -> v3 mengurangi dampaknya. Cek update library secara berkala.
+- Bot tidak menyimpan file di disk; media diunduh ke memori lalu diupload.
+- Hormati hak cipta dan ToS TikTok.

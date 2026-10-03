@@ -1,6 +1,0 @@
-endpoints:
-  # pitucode TikTok downloader v2. API key dikirim via header `x-api-key` (DOWNLOADER_API_KEY di .env).
-  # Respons: {success, data: {cdn_url, author, video, ...}} -> diadaptasi di bot/media_normalizer.py.
-  default: https://api.pitucode.com/tiktok-downloader-v2
-
-  # per_platform: {}   # opsional: override endpoint per platform, mis. youtube: https://...

@@ -1,0 +1,26 @@
+{
+  "name": "tiktok-downloader-bot",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Bot Telegram untuk mengunduh video, foto/slide, dan musik TikTok.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iceyui/aio-downloader.git"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@grammyjs/auto-retry": "2.0.2",
+    "@grammyjs/runner": "2.0.3",
+    "@tobyg74/tiktok-api-dl": "1.3.7",
+    "dotenv": "18.0.5",
+    "grammy": "1.46.0"
+  }
+}
